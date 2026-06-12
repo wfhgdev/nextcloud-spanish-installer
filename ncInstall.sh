@@ -50,84 +50,98 @@ configurar_php() {
 
 seleccionar_zona_horaria() {
     echo ""
-    info "Seleccione la zona horaria del servidor"
+    info "Seleccione su país o región para configurar la zona horaria y la región de Nextcloud"
 
-    echo "  1) España (Europe/Madrid)"
-    echo "  2) Colombia (America/Bogota)"
-    echo "  3) México (America/Mexico_City)"
-    echo "  4) Argentina (America/Argentina/Buenos_Aires)"
-    echo "  5) Venezuela (America/Caracas)"
-    echo "  6) Ecuador (America/Guayaquil)"
-    echo "  7) Perú (America/Lima)"
-    echo "  8) Bolivia (America/La_Paz)"
-    echo "  9) Chile (America/Santiago)"
-    echo "  10) Ingresar zona horaria manualmente"
+    echo "  1) España      (Europe/Madrid)"
+    echo "  2) Colombia    (America/Bogota)"
+    echo "  3) México      (America/Mexico_City)"
+    echo "  4) Argentina   (America/Argentina/Buenos_Aires)"
+    echo "  5) Venezuela   (America/Caracas)"
+    echo "  6) Ecuador     (America/Guayaquil)"
+    echo "  7) Perú        (America/Lima)"
+    echo "  8) Bolivia     (America/La_Paz)"
+    echo "  9) Chile       (America/Santiago)"
+    echo " 10) Personalizado (Ingresar manualmente zona horaria)"
 
-    while :; do
-        read -p "Seleccione una opción [1]: " TZ_OPTION
+    while true; do
+        read -rp "Seleccione una opción [1]: " TZ_OPTION
         TZ_OPTION=${TZ_OPTION:-1}
 
         case "$TZ_OPTION" in
             1)
                 TIMEZONE="Europe/Madrid"
+                NEXTCLOUD_LOCALE="es_ES"
                 break
                 ;;
             2)
                 TIMEZONE="America/Bogota"
+                NEXTCLOUD_LOCALE="es_CO"
                 break
                 ;;
             3)
                 TIMEZONE="America/Mexico_City"
+                NEXTCLOUD_LOCALE="es_MX"
                 break
                 ;;
             4)
                 TIMEZONE="America/Argentina/Buenos_Aires"
+                NEXTCLOUD_LOCALE="es_AR"
                 break
                 ;;
             5)
                 TIMEZONE="America/Caracas"
+                NEXTCLOUD_LOCALE="es_VE"
                 break
                 ;;
             6)
                 TIMEZONE="America/Guayaquil"
+                NEXTCLOUD_LOCALE="es_EC"
                 break
                 ;;
             7)
                 TIMEZONE="America/Lima"
+                NEXTCLOUD_LOCALE="es_PE"
                 break
                 ;;
             8)
                 TIMEZONE="America/La_Paz"
+                NEXTCLOUD_LOCALE="es_BO"
                 break
                 ;;
             9)
                 TIMEZONE="America/Santiago"
+                NEXTCLOUD_LOCALE="es_CL"
                 break
                 ;;
             10)
-                while :; do
-                    read -p "Ingrese la zona horaria manualmente (ej: Asia/Tokyo): " TIMEZONE
+                while true; do
+                    read -rp "Ingrese la zona horaria (ej: America/Panama o Asia/Tokyo): " TIMEZONE
 
                     if timedatectl list-timezones | grep -Fxq "$TIMEZONE"; then
-                        break 2
+                        break
                     else
                         warning "La zona horaria ingresada no es válida. Intente nuevamente."
                     fi
                 done
+
+                # Para una zona horaria personalizada se usa español genérico
+                NEXTCLOUD_LOCALE="es"
+                break
                 ;;
             *)
-                warning "Opción no válida. Seleccione un número entre 1 y 10."
+                warning "Opción inválida. Debe seleccionar un número del 1 al 10."
                 ;;
         esac
     done
 
-    # Configurar zona horaria del sistema
+    # Configurar la zona horaria del sistema
     if timedatectl set-timezone "$TIMEZONE"; then
-        ok "Zona horaria configurada correctamente: $TIMEZONE"
+        ok "Zona horaria configurada: $TIMEZONE"
     else
         error_exit "No se pudo configurar la zona horaria del sistema."
     fi
 
+    ok "Región de Nextcloud configurada: $NEXTCLOUD_LOCALE"
     echo ""
 }
 
@@ -492,6 +506,9 @@ fi
 sudo -u www-data php occ config:system:set default_language --value="es"
 ok "Idioma predeterminado de Nextcloud configurado en español."
 
+# Configurar la región de Nextcloud
+sudo -u www-data php occ config:system:set default_locale --value="$NEXTCLOUD_LOCALE"
+
 # Se agrega el Dominio público Trusted Domain
 sudo -u www-data php occ config:system:set trusted_domains 1 --value="$DOMAIN"
 
@@ -623,7 +640,7 @@ crontab -u www-data -l 2>/dev/null | { cat; echo "*/5 * * * * php -f $NC_PATH/cr
 # Indexación y reparaciones estructurales de la base de datos (Mitigación estricta de advertencias en panel de control)
 sudo -u www-data php occ db:add-missing-indices --no-interaction
 sudo -u www-data php occ db:add-missing-columns --no-interaction
-sudo -u www-data php occ db:convert-filecache-bigint --no-interaction # Optimización BigInt (Recomendación del video)
+sudo -u www-data php occ db:convert-filecache-bigint --no-interaction # Optimización BigInt
 
 echo -e "${VERDE}======================================================================${NC}"
 echo -e "${VERDE}             ¡INSTALACIÓN DE NEXTCLOUD COMPLETADA CON ÉXITO!          ${NC}"
@@ -635,13 +652,20 @@ else
     echo -e "${CYAN}Acceso público:${NC} http://${DOMAIN}"
     echo -e "${CYAN}Acceso local:${NC} http://${LOCAL_IP}"
 fi
-echo -e "${CYAN}Usuario Administrador:${NC} $NC_ADMIN"
-echo -e "${CYAN}Ruta de Datos Aislada:${NC} $NC_DATA_PATH"
-echo -e "${CYAN}Zona horaria del servidor:${NC} $TIMEZONE"
+echo -e "${CYAN}Usuario Administrador Nextcloud:${NC} $NC_ADMIN"
+echo -e "${CYAN}Directorio de datos Nextcloud:${NC} $NC_DATA_PATH"
+echo -e "${CYAN}Base de datos MariaDB:${NC} ${DB_NAME}"
+echo -e "${CYAN}Usuario de base de datos:${NC} ${DB_USER}"
+echo -e "${CYAN}Región de Nextcloud:${NC} ${NEXTCLOUD_LOCALE}"
+echo -e "${CYAN}Zona horaria:${NC} ${TIMEZONE}"
 
 if [ "$ENABLE_LETSENCRYPT" = true ]; then
     echo -e "${VERDE}Estado de Seguridad:${NC} Certificado Let's Encrypt Activo - Calificación A+ Lista."
 else
     echo -e "${AMARILLO}Estado de Seguridad:${NC} Usando certificado provisional. Instale llaves válidas para obtener A+."
 fi
+echo -e "${CYAN}Versión de Nextcloud:${NC} ${NEXTCLOUD_VERSION}"
+echo -e "${CYAN}Versión de PHP:${NC} ${PHP_VERSION}"
+echo -e "${CYAN}Versión de MariaDB:${NC} ${MARIADB_VERSION}"
+echo -e "${CYAN}Archivo de registro:${NC} /var/log/ncInstall.log"
 echo -e "${VERDE}======================================================================${NC}"
