@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ==============================================================================
-# Script de Instalación Interactiva de Nextcloud 33 (Calificación A+)
+# Script de Instalación Interactiva de Nextcloud 34 (Calificación A+)
 # Entorno: Ubuntu Server 26.04 LTS | MariaDB 11.8 | Apache 2.4 | PHP 8.5
 # Características: Automatización de Certbot y Directorio de Datos Seguro Aislado
 # Autor: wfhgdev / Ing. William H.
@@ -165,6 +165,14 @@ if [ "$TOTAL_RAM" -lt 2000 ]; then
     [[ "$CONTINUAR" != "s" ]] && exit 1
 fi
 
+# Verificar espacio libre en disco al inicio
+DISK_FREE=$(df / --output=avail | tail -1)
+DISK_FREE_GB=$((DISK_FREE / 1024 / 1024))
+
+if [ "$DISK_FREE_GB" -lt 10 ]; then
+    warning "Espacio libre bajo: ${DISK_FREE_GB} GB disponibles. Se recomienda un mínimo de 10 GB."
+fi
+
 ok "Entorno validado con éxito."
 echo ""
 
@@ -180,6 +188,14 @@ while :; do
         break
     fi
 done
+
+info "Verificando resolución DNS del dominio..."
+
+if getent hosts "$DOMAIN" > /dev/null; then
+    ok "El dominio resuelve correctamente."
+else
+    warning "El dominio aún no resuelve. Let's Encrypt podría fallar."
+fi
 
 # Selección de zona horaria del servidor
 seleccionar_zona_horaria
@@ -333,6 +349,8 @@ else
 fi
 
 # --- FASE 5: OPTIMIZACIÓN DE PHP 8.5 PARA CALIFICACIÓN A+ ---
+cp "$PHP_INI" "${PHP_INI}.bak"
+ok "Copia de seguridad de php.ini creada."
 echo -e "${CYAN}[5/11] Aplicando optimizaciones de rendimiento y seguridad en PHP 8.5...${NC}"
 PHP_INI="/etc/php/8.5/fpm/php.ini"
 
@@ -368,13 +386,13 @@ else
 fi
 
 # --- FASE 6: DESPLIEGUE DEL CÓDIGO FUENTE Y AISLAMIENTO DE DATOS (SEGURIDAD DEFENSA EN PROFUNDIDAD) ---
-echo -e "${CYAN}[6/11] Descargando Nextcloud 33 y estructurando directorios seguros...${NC}"
+echo -e "${CYAN}[6/11] Descargando Nextcloud 34 y estructurando directorios seguros...${NC}"
 NC_PATH="/var/www/nextcloud"
 NC_DATA_PATH="/var/nextcloud-data" # Definición del directorio de almacenamiento aislado del entorno web
 
 # Limpieza y despliegue del binario web
 rm -rf "$NC_PATH"
-if curl -fsSL https://download.nextcloud.com/server/releases/latest-33.tar.bz2 -o /tmp/nextcloud.tar.bz2
+if curl -fsSL https://download.nextcloud.com/server/releases/latest-34.tar.bz2 -o /tmp/nextcloud.tar.bz2
 then
     ok "Paquete de Nextcloud descargado correctamente."
 else
@@ -469,6 +487,10 @@ if sudo -u www-data php occ config:system:set overwrite.cli.url --value="https:/
 else
     error_exit "No se pudo configurar Overwrite cli url en Nextcloud."
 fi
+
+# Establecer español como idioma predeterminado de Nextcloud
+sudo -u www-data php occ config:system:set default_language --value="es"
+ok "Idioma predeterminado de Nextcloud configurado en español."
 
 # Se agrega el Dominio público Trusted Domain
 sudo -u www-data php occ config:system:set trusted_domains 1 --value="$DOMAIN"
