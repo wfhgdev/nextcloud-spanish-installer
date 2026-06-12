@@ -7,13 +7,45 @@
 # Autor: wfhgdev / Ing. William H.
 # Fecha: Junio 2026
 # ==============================================================================
-
+set -Eeuo pipefail
+trap 'echo -e "${ROJO}[ERROR] Instalación abortada en la línea $LINENO.${NC}"' ERR
 # Colores para la trazabilidad en consola
 export NC='\033[0m'
 export VERDE='\033[0;32m'
 export CYAN='\033[0;36m'
 export AMARILLO='\033[1;33m'
 export ROJO='\033[0;31m'
+# --- Funciones
+info() {
+    echo -e "${CYAN}[INFO] $1${NC}"
+}
+
+ok() {
+    echo -e "${VERDE}[OK] $1${NC}"
+}
+
+warning() {
+    echo -e "${AMARILLO}[ADVERTENCIA] $1${NC}"
+}
+
+error_exit() {
+    echo -e "${ROJO}[ERROR] $1${NC}"
+    exit 1
+}
+configurar_php() {
+    local parametro=$1
+    local valor=$2
+
+    if grep -q "^${parametro}" "$PHP_INI"; then
+        sed -i "s|^${parametro}.*|${parametro}=${valor}|" "$PHP_INI"
+    else
+        echo "${parametro}=${valor}" >> "$PHP_INI"
+    fi
+}
+# --- Crear log
+LOG_FILE="/var/log/ncInstall.log"
+exec > >(tee -a "$LOG_FILE") 2>&1
+info "Inicio de instalación. Log almacenado en $LOG_FILE"
 
 # --- FASE 1: VERIFICACIONES DE CONTROL DE CALIDAD ---
 echo -e "${CYAN}[1/11] Ejecutando pruebas de control de calidad del entorno...${NC}"
@@ -106,33 +138,82 @@ read -p "Usuario de la base de datos MariaDB [nextcloud_user]: " DB_USER
 DB_USER=${DB_USER:-nextcloud_user}
 
 while :; do
-    read -s -p "Contraseña para el usuario de la base de datos: " DB_PASS
+    read -s -p "Defina la contraseña para el usuario de la base de datos (mínimo 8 caracteres): " DB_PASS
     echo ""
+
+    # Verificar que no esté vacía
     if [ -z "$DB_PASS" ]; then
-        echo -e "${ROJO}La contraseña de la base de datos es obligatoria.${NC}"
-    else
-        break
+        echo -e "${ROJO}[ERROR] La contraseña de la base de datos es obligatoria.${NC}"
+        continue
     fi
+
+    # Verificar longitud mínima
+    if [ ${#DB_PASS} -lt 8 ]; then
+        echo -e "${ROJO}[ERROR] La contraseña debe tener al menos 8 caracteres.${NC}"
+        continue
+    fi
+
+    # Bloquear caracteres que pueden romper el script o la sentencia SQL
+    if [[ "$DB_PASS" =~ [\'\"\`\$\\] ]]; then
+        echo -e "${ROJO}[ERROR] La contraseña contiene caracteres no permitidos.${NC}"
+        echo -e "${AMARILLO}Caracteres prohibidos: '  \"  \`  \$  \\ ${NC}"
+        continue
+    fi
+
+    # Solicitar confirmación
+    read -s -p "Confirme nuevamente la contraseña: " DB_PASS_CONFIRM
+    echo ""
+
+    # Comparar ambas contraseñas
+    if [ "$DB_PASS" != "$DB_PASS_CONFIRM" ]; then
+        echo -e "${ROJO}[ERROR] Las contraseñas no coinciden. Inténtelo nuevamente.${NC}"
+        continue
+    fi
+
+    # Si todas las validaciones son correctas, salir del bucle
+    break
+
 done
 
 echo -e "${VERDE}[OK] Datos recopilados de forma segura.${NC}\n"
 
 # --- FASE 3: ACTUALIZACIÓN E INSTALACIÓN DEL STACK (LAMP + REDIS + CERTBOT) ---
 echo -e "${CYAN}[3/11] Actualizando repositorios e instalando paquetes del sistema...${NC}"
-apt-get update -y && apt-get upgrade -y
+if apt-get update -y && apt-get upgrade -y; then
+    ok "Repositorios actualizados correctamente."
+else
+    error_exit "Falló la actualización de APT. Revise repositorios externos, claves GPG o conexión a Internet."
+fi
 
 echo -e "${CYAN}Instalando Apache 2.4, MariaDB 11.8, PHP 8.5, Redis y Certbot...${NC}"
-apt-get install -y apache2 mariadb-server mariadb-client redis-server curl unzip bzip2 sudo ssl-cert \
+if apt-get install -y apache2 mariadb-server mariadb-client redis-server curl unzip bzip2 sudo ssl-cert \
 php8.5 php8.5-fpm php8.5-mysql php8.5-intl php8.5-curl php8.5-gd php8.5-xml php8.5-zip \
 php8.5-mbstring php8.5-bcmath php8.5-gmp php8.5-imagick php8.5-opcache php8.5-redis php8.5-bz2 \
 certbot python3-certbot-apache
+then
+    ok "Stack LAMP, Redis y herramientas SSL instaladas correctamente."
+else
+    error_exit "Falló la instalación de paquetes del sistema. Revise disponibilidad de repositorios."
+fi
 
 echo -e "${VERDE}[OK] Stack de software base y herramientas SSL instaladas correctamente.${NC}\n"
 
 # --- FASE 4: CONFIGURACIÓN SEGURA DE MARIADB 11.8 ---
 echo -e "${CYAN}[4/11] Configurando el motor de base de datos MariaDB 11.8...${NC}"
+if ! command -v mariadb >/dev/null 2>&1; then
+    error_exit "MariaDB no está instalado correctamente."
+fi
 systemctl start mariadb
 systemctl enable mariadb
+
+# Verificar que MariaDB esté activo antes de continuar
+if systemctl is-active --quiet mariadb; then
+    echo -e "${VERDE}[OK] Servicio MariaDB iniciado correctamente.${NC}"
+else
+    echo -e "${ROJO}[ERROR] MariaDB no pudo iniciarse correctamente.${NC}"
+    echo -e "${AMARILLO}[INFO] Revise el estado con: systemctl status mariadb${NC}"
+    exit 1
+fi
 
 mariadb -u root <<EOF
 CREATE DATABASE IF NOT EXISTS \`${DB_NAME}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci;
@@ -164,7 +245,8 @@ if [ -f "$PHP_INI" ]; then
     sed -i "s|;opcache.enable_cli=.*|opcache.enable_cli=1|g" "$PHP_INI"
     sed -i "s|;opcache.interned_strings_buffer=.*|opcache.interned_strings_buffer=16|g" "$PHP_INI"
     sed -i "s|;opcache.max_accelerated_files=.*|opcache.max_accelerated_files=10000|g" "$PHP_INI"
-    sed -i "s|;opcache.memory_consumption=.*|opcache.memory_consumption=128|g" "$PHP_INI"
+    #sed -i "s|;opcache.memory_consumption=.*|opcache.memory_consumption=128|g" "$PHP_INI"
+	configurar_php opcache.memory_consumption 128
     sed -i "s|;opcache.save_comments=.*|opcache.save_comments=1|g" "$PHP_INI"
     sed -i "s|;opcache.revalidate_freq=.*|opcache.revalidate_freq=1|g" "$PHP_INI"
     
@@ -182,7 +264,12 @@ NC_DATA_PATH="/var/nextcloud-data" # Definición del directorio de almacenamient
 
 # Limpieza y despliegue del binario web
 rm -rf "$NC_PATH"
-curl -sL https://download.nextcloud.com/server/releases/latest-33.tar.bz2 -o /tmp/nextcloud.tar.bz2
+if curl -fsSL https://download.nextcloud.com/server/releases/latest-33.tar.bz2 -o /tmp/nextcloud.tar.bz2
+then
+    ok "Paquete de Nextcloud descargado correctamente."
+else
+    error_exit "No se pudo descargar Nextcloud desde el servidor oficial."
+fi
 tar -xjf /tmp/nextcloud.tar.bz2 -C /var/www/
 
 # Crear e implementar las directivas de seguridad para la carpeta de almacenamiento externa
