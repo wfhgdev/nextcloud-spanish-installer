@@ -40,16 +40,8 @@ El script soluciona de manera proactiva todos los dolores de cabeza comunes del 
 
 ## 💻 Cómo Ejecutar el Script
 
-### :thumbsup: Metodo 1 (Estándar)
-Asegúrate de tener **cURL** instalado, verifícalo usando el comando `curl --version`, de lo contrario puedes instalar **cURL** (Cliente para URLs) con el comando: `sudo apt install curl`
-
-```Shell
-curl https://raw.githubusercontent.com/wfhgdev/nc33_spa/master/ncInstall.sh | bash
-```
-
 ### :sheep: Metodo 2 (Clonación de repositorio)
 Asegúrate de tener **Git** instalado, verifícalo con el comando `git --version`, de lo contrario puedes instalar **Git** (sistema de control de versiones) con el comando: `sudo apt install git`
 
 ```Shell
-git clone https://github.com/wfhgdev/nc33_spa.git
-bash pivpn/auto_install/install.sh
+git clone https://github.com/wfhgdev/nc33_spa.git && cd nc33_spa && chmod +x ncInstall.sh && sudo ./ncInstall.sh
