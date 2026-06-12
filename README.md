@@ -40,8 +40,16 @@ El script soluciona de manera proactiva todos los dolores de cabeza comunes del 
 
 ## 💻 Cómo Ejecutar el Script
 
-Puedes clonar este repositorio o transferir el script directamente a tu servidor. Sigue estos pasos en la terminal de tu Ubuntu Server:
+### :thumbsup: Metodo 1 (Estándar)
+Antes de instalar PiVPN, debes usar el siguiente comando en tu terminal para actualizar el sistema operativo: `sudo apt update && sudo apt upgrade -y`, asegúrate de tener **cURL** instalado, verifícalo usando el comando `curl --version`, de lo contrario puedes instalar **cURL** (Cliente para URLs) con el comando: `sudo apt install curl`
 
-1. Descarga o crea el archivo del script en tu servidor:
-   ```bash
-   nano install_nextcloud.sh
+```Shell
+curl https://raw.githubusercontent.com/wfhgdev/nc33_spa/master/ncInstall.sh | bash
+```
+
+### :sheep: Metodo 2 (Clonación de repositorio)
+Antes de instalar PiVPN, debes usar el siguiente comando en tu terminal para actualizar el sistema operativo: `sudo apt update && sudo apt upgrade -y`, asegúrate de tener **Git** instalado, verifícalo con el comando `git --version`, de lo contrario puedes instalar **Git** (sistema de control de versiones) con el comando: `sudo apt install git`
+
+```Shell
+git clone https://github.com/wfhgdev/nc33_spa.git
+bash pivpn/auto_install/install.sh
