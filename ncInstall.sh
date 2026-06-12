@@ -48,6 +48,89 @@ configurar_php() {
     fi
 }
 
+seleccionar_zona_horaria() {
+    echo ""
+    info "Seleccione la zona horaria del servidor"
+
+    echo "  1) España (Europe/Madrid)"
+    echo "  2) Colombia (America/Bogota)"
+    echo "  3) México (America/Mexico_City)"
+    echo "  4) Argentina (America/Argentina/Buenos_Aires)"
+    echo "  5) Venezuela (America/Caracas)"
+    echo "  6) Ecuador (America/Guayaquil)"
+    echo "  7) Perú (America/Lima)"
+    echo "  8) Bolivia (America/La_Paz)"
+    echo "  9) Chile (America/Santiago)"
+    echo "  10) Ingresar zona horaria manualmente"
+
+    while :; do
+        read -p "Seleccione una opción [1]: " TZ_OPTION
+        TZ_OPTION=${TZ_OPTION:-1}
+
+        case "$TZ_OPTION" in
+            1)
+                TIMEZONE="Europe/Madrid"
+                break
+                ;;
+            2)
+                TIMEZONE="America/Bogota"
+                break
+                ;;
+            3)
+                TIMEZONE="America/Mexico_City"
+                break
+                ;;
+            4)
+                TIMEZONE="America/Argentina/Buenos_Aires"
+                break
+                ;;
+            5)
+                TIMEZONE="America/Caracas"
+                break
+                ;;
+            6)
+                TIMEZONE="America/Guayaquil"
+                break
+                ;;
+            7)
+                TIMEZONE="America/Lima"
+                break
+                ;;
+            8)
+                TIMEZONE="America/La_Paz"
+                break
+                ;;
+            9)
+                TIMEZONE="America/Santiago"
+                break
+                ;;
+            10)
+                while :; do
+                    read -p "Ingrese la zona horaria manualmente (ej: Asia/Tokyo): " TIMEZONE
+
+                    if timedatectl list-timezones | grep -Fxq "$TIMEZONE"; then
+                        break 2
+                    else
+                        warning "La zona horaria ingresada no es válida. Intente nuevamente."
+                    fi
+                done
+                ;;
+            *)
+                warning "Opción no válida. Seleccione un número entre 1 y 10."
+                ;;
+        esac
+    done
+
+    # Configurar zona horaria del sistema
+    if timedatectl set-timezone "$TIMEZONE"; then
+        ok "Zona horaria configurada correctamente: $TIMEZONE"
+    else
+        error_exit "No se pudo configurar la zona horaria del sistema."
+    fi
+
+    echo ""
+}
+
 # --- Crear log
 LOG_FILE="/var/log/ncInstall.log"
 exec > >(tee -a "$LOG_FILE") 2>&1
@@ -58,7 +141,7 @@ echo -e "${CYAN}[1/11] Ejecutando pruebas de control de calidad del entorno...${
 
 # Verificar privilegios de root
 if [ "$EUID" -ne 0 ]; then
-    echo -e "${ROJO}[ERROR] Este script debe ejecutarse con privilegios de root (sudo).${NC}"
+    error_exit "Este script debe ejecutarse con privilegios de root (sudo)."
     exit 1
 fi
 
@@ -66,23 +149,24 @@ fi
 if [ -f /etc/os-release ]; then
     . /etc/os-release
     if [ "$VERSION_ID" != "26.04" ]; then
-        echo -e "${ROJO}[ERROR] Este script está diseñado exclusivamente para Ubuntu 26.04 LTS.${NC}"
+		error_exit "Este script está diseñado exclusivamente para Ubuntu 26.04 LTS."
         exit 1
     fi
 else
-    echo -e "${ROJO}[ERROR] No se pudo determinar la distribución del sistema operativo.${NC}"
+	error_exit "No se pudo determinar la distribución del sistema operativo."
     exit 1
 fi
 
 # Verificar recursos mínimos (2GB RAM mínimos para producción)
 TOTAL_RAM=$(free -m | awk '/^Mem:/{print $2}')
 if [ "$TOTAL_RAM" -lt 2000 ]; then
-    echo -e "${AMARILLO}[ADVERTENCIA] Se detectaron menos de 2GB de RAM ($TOTAL_RAM MB). Nextcloud podría tener problemas de rendimiento.${NC}"
+    warning "Se detectaron menos de 2GB de RAM ($TOTAL_RAM MB). Nextcloud podría tener problemas de rendimiento."
     read -p "¿Desea continuar de todos modos? (s/n): " CONTINUAR
     [[ "$CONTINUAR" != "s" ]] && exit 1
 fi
 
-echo -e "${VERDE}[OK] Entorno validado con éxito.${NC}\n"
+ok "Entorno validado con éxito."
+echo ""
 
 # --- FASE 2: ASISTENTE INTERACTIVO DE RECOPILACIÓN DE DATOS ---
 echo -e "${CYAN}[2/11] Iniciando asistente interactivo de configuración...${NC}"
@@ -91,11 +175,14 @@ echo -e "${CYAN}[2/11] Iniciando asistente interactivo de configuración...${NC}
 while :; do
     read -p "Ingrese el nombre de dominio de su servidor (ej: nube.midominio.com): " DOMAIN
     if [ -z "$DOMAIN" ]; then
-        echo -e "${ROJO}El dominio no puede estar vacío.${NC}"
+        warning "El dominio no puede estar vacío."
     else
         break
     fi
 done
+
+# Selección de zona horaria del servidor
+seleccionar_zona_horaria
 
 # Preguntar si se desea automatizar SSL con Let's Encrypt
 while :; do
@@ -106,7 +193,7 @@ while :; do
             while :; do
                 read -p "Ingrese su correo electrónico para las alertas de renovación de Let's Encrypt: " SSL_EMAIL
                 if [ -z "$SSL_EMAIL" ]; then
-                    echo -e "${ROJO}El correo electrónico es obligatorio para el registro de Let's Encrypt.${NC}"
+					warning "El correo electrónico es obligatorio para el registro de Let's Encrypt."
                 else
                     break
                 fi
@@ -181,6 +268,15 @@ while :; do
 
 done
 
+# Detectar dirección IP local principal del servidor
+LOCAL_IP=$(ip route get 1.1.1.1 | awk '{print $7; exit}')
+
+if [ -n "$LOCAL_IP" ]; then
+    info "Dirección IP local detectada: $LOCAL_IP"
+else
+    warning "No fue posible detectar la dirección IP local del servidor."
+fi
+
 echo -e "${VERDE}[OK] Datos recopilados de forma segura.${NC}\n"
 
 # --- FASE 3: ACTUALIZACIÓN E INSTALACIÓN DEL STACK (LAMP + REDIS + CERTBOT) ---
@@ -245,7 +341,7 @@ if [ -f "$PHP_INI" ]; then
     sed -i "s|upload_max_filesize =.*|upload_max_filesize = 10G|g" "$PHP_INI"
     sed -i "s|post_max_size =.*|post_max_size = 10G|g" "$PHP_INI"
     sed -i "s|max_execution_time =.*|max_execution_time = 3600|g" "$PHP_INI"
-    sed -i "s|;date.timezone =.*|date.timezone = Europe/Madrid|g" "$PHP_INI"
+    configurar_php date.timezone "$TIMEZONE"
     
     # Configuración estricta de OPcache requerida por Nextcloud
 	configurar_php opcache.enable 1
@@ -284,7 +380,14 @@ then
 else
     error_exit "No se pudo descargar Nextcloud desde el servidor oficial."
 fi
-tar -xjf /tmp/nextcloud.tar.bz2 -C /var/www/
+
+if tar -xjf /tmp/nextcloud.tar.bz2 -C /var/www/; then
+    ok "Archivos de Nextcloud desplegados correctamente."
+	rm -f /tmp/nextcloud.tar.bz2
+    ok "Archivo temporal de instalación eliminado."
+else
+    error_exit "Falló la extracción del paquete de Nextcloud."
+fi
 
 # Crear e implementar las directivas de seguridad para la carpeta de almacenamiento externa
 mkdir -p "$NC_DATA_PATH"
@@ -309,11 +412,13 @@ sudo -u www-data php occ maintenance:install \
   --admin-pass="$NC_PASS" \
   --data-dir="$NC_DATA_PATH" # Mapeo directo al directorio aislado externo
 
-if [ $? -eq 0 ]; then
-    echo -e "${VERDE}[OK] Instalación de la estructura interna completada con éxito.${NC}\n"
+if sudo -u www-data php occ maintenance:install \
+    --database="mysql" \
+    ...
+then
+    ok "Instalación interna de Nextcloud completada con éxito."
 else
-    echo -e "${ROJO}[ERROR] Error fatal durante la instalación mediante la CLI OCC de Nextcloud.${NC}"
-    exit 1
+    error_exit "Falló la instalación mediante la CLI OCC de Nextcloud."
 fi
 
 # --- FASE 8: INTEGRACIÓN DE CACHÉ DE MEMORIA RAM CON REDIS ---
@@ -330,12 +435,51 @@ else
     exit 1
 fi
 
-sudo -u www-data php occ config:system:set memcache.local --value="\OC\Memcache\Redis"
-sudo -u www-data php occ config:system:set memcache.distributed --value="\OC\Memcache\Redis"
-sudo -u www-data php occ config:system:set memcache.locking --value="\OC\Memcache\Redis"
-sudo -u www-data php occ config:system:set redis --value='{"host":"127.0.0.1","port":6379,"timeout":0.0}' --type=json
-sudo -u www-data php occ config:system:set overwrite.cli.url --value="https://$DOMAIN"
+#sudo -u www-data php occ config:system:set memcache.local --value="\OC\Memcache\Redis"
+if sudo -u www-data php occ config:system:set memcache.local --value="\OC\Memcache\Redis"; then
+    ok "Memcache local configurado."
+else
+    error_exit "No se pudo configurar Redis en Nextcloud."
+fi
+
+#sudo -u www-data php occ config:system:set memcache.distributed --value="\OC\Memcache\Redis"
+if sudo -u www-data php occ config:system:set memcache.distributed --value="\OC\Memcache\Redis"; then
+    ok "Memcache distributed configurado."
+else
+    error_exit "No se pudo configurar Memcache distributed en Nextcloud."
+fi
+
+#sudo -u www-data php occ config:system:set memcache.locking --value="\OC\Memcache\Redis"
+if sudo -u www-data php occ config:system:set memcache.locking --value="\OC\Memcache\Redis"; then
+    ok "Memcache locking configurado."
+else
+    error_exit "No se pudo configurar Memcache locking en Nextcloud."
+fi
+
+#sudo -u www-data php occ config:system:set redis --value='{"host":"127.0.0.1","port":6379,"timeout":0.0}' --type=json
+if sudo -u www-data php occ config:system:set redis --value='{"host":"127.0.0.1","port":6379,"timeout":0.0}' --type=json; then
+    ok "Redis configurado."
+else
+    error_exit "No se pudo configurar Redis en Nextcloud."
+fi
+
+#sudo -u www-data php occ config:system:set overwrite.cli.url --value="https://$DOMAIN"
+if sudo -u www-data php occ config:system:set overwrite.cli.url --value="https://$DOMAIN"; then
+    ok "Overwrite cli url configurado."
+else
+    error_exit "No se pudo configurar Overwrite cli url en Nextcloud."
+fi
+
+# Se agrega el Dominio público Trusted Domain
 sudo -u www-data php occ config:system:set trusted_domains 1 --value="$DOMAIN"
+
+# Se agrega el Acceso por IP local al Trusted Domain 
+if [ -n "$LOCAL_IP" ]; then
+    sudo -u www-data php occ config:system:set trusted_domains 2 --value="$LOCAL_IP"
+    ok "Acceso local por IP agregado a trusted_domains: $LOCAL_IP"
+else
+    warning "Se omitió la configuración de acceso por IP local."
+fi
 
 echo -e "${VERDE}[OK] Redis configurado como backend de caché de memoria RAM.${NC}\n"
 
@@ -430,18 +574,15 @@ if [ "$ENABLE_LETSENCRYPT" = true ]; then
         -m "$SSL_EMAIL" \
         -d "$DOMAIN"
     
-    if [ $? -eq 0 ]; then
-        echo -e "${VERDE}[OK] Certificado SSL emitido e instalado correctamente por Let's Encrypt.${NC}"
-        # Asegurar que las cabeceras de seguridad críticas sigan vigentes en el nuevo archivo generado por Certbot
-        if [ -f "/etc/apache2/sites-available/nextcloud-le-ssl.conf" ]; then
-            if ! grep -q "Strict-Transport-Security" /etc/apache2/sites-available/nextcloud-le-ssl.conf; then
-                sed -i '/<\/VirtualHost>/i \    Header always set Strict-Transport-Security "max-age=15552000; includeSubDomains; preload"' /etc/apache2/sites-available/nextcloud-le-ssl.conf
-            fi
-        fi
-        systemctl restart apache2
+    if certbot --apache --non-interactive --agree-tos --redirect \
+        --keep-until-expiring \
+        -m "$SSL_EMAIL" \
+        -d "$DOMAIN"
+    then
+        ok "Certificado SSL emitido e instalado correctamente."
     else
-        echo -e "${AMARILLO}[ADVERTENCIA] Falló la verificación de Certbot (verifique los puertos 80/443 y DNS).${NC}"
-        echo -e "${AMARILLO}Se mantendrán los certificados autofirmados provisionales por seguridad.${NC}"
+        warning "Falló la verificación de Certbot. Verifique DNS, puertos 80/443 y firewall."
+        warning "Se mantendrán los certificados autofirmados provisionales por seguridad."
     fi
 else
     echo -e "${AMARILLO}[INFO] Omisión de Let's Encrypt solicitada por el usuario. Recuerde mapear sus llaves TLS manualmente.${NC}"
@@ -465,9 +606,17 @@ sudo -u www-data php occ db:convert-filecache-bigint --no-interaction # Optimiza
 echo -e "${VERDE}======================================================================${NC}"
 echo -e "${VERDE}             ¡INSTALACIÓN DE NEXTCLOUD COMPLETADA CON ÉXITO!          ${NC}"
 echo -e "${VERDE}======================================================================${NC}"
-echo -e "${CYAN}Dominio de acceso:${NC} https://$DOMAIN"
+if [ "$SSL_ENABLED" = true ]; then
+    echo -e "${CYAN}Acceso público:${NC} https://${DOMAIN}"
+    echo -e "${CYAN}Acceso local:${NC} https://${LOCAL_IP}"
+else
+    echo -e "${CYAN}Acceso público:${NC} http://${DOMAIN}"
+    echo -e "${CYAN}Acceso local:${NC} http://${LOCAL_IP}"
+fi
 echo -e "${CYAN}Usuario Administrador:${NC} $NC_ADMIN"
 echo -e "${CYAN}Ruta de Datos Aislada:${NC} $NC_DATA_PATH"
+echo -e "${CYAN}Zona horaria del servidor:${NC} $TIMEZONE"
+
 if [ "$ENABLE_LETSENCRYPT" = true ]; then
     echo -e "${VERDE}Estado de Seguridad:${NC} Certificado Let's Encrypt Activo - Calificación A+ Lista."
 else
