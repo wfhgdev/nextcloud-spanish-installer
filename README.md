@@ -1,6 +1,6 @@
 # Script de Instalación Automatizada y Segura de Nextcloud 34
 
-Este repositorio contiene un script interactivo en Bash diseñado para desplegar de forma completamente automática, eficiente y segura un entorno de producción para **Nextcloud 34 (Hub 9)** en **Ubuntu Server 26.04 LTS**. 
+Este repositorio contiene un script interactivo en Bash diseñado para desplegar de forma completamente automática, eficiente y segura un entorno de producción para **Nextcloud 34 (Hub 10)** en **Ubuntu Server 26.04 LTS**. 
 
 A diferencia de los métodos de instalación estándar, este script aplica directivas estrictas de rendimiento y seguridad que garantizan una calificación de **Seguridad A+** y un panel de administración limpio, con todas las **marcas de verificación en verde (cero advertencias)** desde el primer inicio de sesión.
 
