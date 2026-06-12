@@ -7,14 +7,18 @@
 # Autor: wfhgdev / Ing. William H.
 # Fecha: Junio 2026
 # ==============================================================================
+
+# Modifica el comportamiento de las tuberías (pipelines) para mejorar la detección de errores
 set -Eeuo pipefail
-trap 'echo -e "${ROJO}[ERROR] Instalación abortada en la línea $LINENO.${NC}"' ERR
+
 # Colores para la trazabilidad en consola
 export NC='\033[0m'
 export VERDE='\033[0;32m'
 export CYAN='\033[0;36m'
 export AMARILLO='\033[1;33m'
 export ROJO='\033[0;31m'
+trap 'echo -e "${ROJO}[ERROR] Instalación abortada en la línea $LINENO.${NC}"' ERR
+
 # --- Funciones
 info() {
     echo -e "${CYAN}[INFO] $1${NC}"
@@ -32,6 +36,7 @@ error_exit() {
     echo -e "${ROJO}[ERROR] $1${NC}"
     exit 1
 }
+
 configurar_php() {
     local parametro=$1
     local valor=$2
@@ -42,6 +47,7 @@ configurar_php() {
         echo "${parametro}=${valor}" >> "$PHP_INI"
     fi
 }
+
 # --- Crear log
 LOG_FILE="/var/log/ncInstall.log"
 exec > >(tee -a "$LOG_FILE") 2>&1
@@ -196,8 +202,6 @@ else
     error_exit "Falló la instalación de paquetes del sistema. Revise disponibilidad de repositorios."
 fi
 
-echo -e "${VERDE}[OK] Stack de software base y herramientas SSL instaladas correctamente.${NC}\n"
-
 # --- FASE 4: CONFIGURACIÓN SEGURA DE MARIADB 11.8 ---
 echo -e "${CYAN}[4/11] Configurando el motor de base de datos MariaDB 11.8...${NC}"
 if ! command -v mariadb >/dev/null 2>&1; then
@@ -222,11 +226,14 @@ GRANT ALL PRIVILEGES ON \`${DB_NAME}\`.* TO '${DB_USER}'@'localhost';
 FLUSH PRIVILEGES;
 EOF
 
-if [ $? -eq 0 ]; then
-    echo -e "${VERDE}[OK] Base de datos y privilegios creados con éxito.${NC}\n"
+if mariadb -u root <<EOF
+CREATE DATABASE IF NOT EXISTS \`${DB_NAME}\`
+...
+EOF
+then
+    ok "Base de datos y privilegios creados correctamente."
 else
-    echo -e "${ROJO}[ERROR] Error al inicializar las tablas de MariaDB.${NC}"
-    exit 1
+    error_exit "No se pudo inicializar MariaDB."
 fi
 
 # --- FASE 5: OPTIMIZACIÓN DE PHP 8.5 PARA CALIFICACIÓN A+ ---
@@ -241,16 +248,23 @@ if [ -f "$PHP_INI" ]; then
     sed -i "s|;date.timezone =.*|date.timezone = Europe/Madrid|g" "$PHP_INI"
     
     # Configuración estricta de OPcache requerida por Nextcloud
-    sed -i "s|;opcache.enable=.*|opcache.enable=1|g" "$PHP_INI"
-    sed -i "s|;opcache.enable_cli=.*|opcache.enable_cli=1|g" "$PHP_INI"
-    sed -i "s|;opcache.interned_strings_buffer=.*|opcache.interned_strings_buffer=16|g" "$PHP_INI"
-    sed -i "s|;opcache.max_accelerated_files=.*|opcache.max_accelerated_files=10000|g" "$PHP_INI"
-    #sed -i "s|;opcache.memory_consumption=.*|opcache.memory_consumption=128|g" "$PHP_INI"
-	configurar_php opcache.memory_consumption 128
-    sed -i "s|;opcache.save_comments=.*|opcache.save_comments=1|g" "$PHP_INI"
-    sed -i "s|;opcache.revalidate_freq=.*|opcache.revalidate_freq=1|g" "$PHP_INI"
+	configurar_php opcache.enable 1
+    configurar_php opcache.enable_cli 1
+    configurar_php opcache.interned_strings_buffer 16
+    configurar_php opcache.max_accelerated_files 10000
+    configurar_php opcache.memory_consumption 128
+    configurar_php opcache.save_comments 1
+    configurar_php opcache.revalidate_freq 1
     
     systemctl restart php8.5-fpm
+	# Verificar que PHP-FPM esté activo
+    if systemctl is-active --quiet php8.5-fpm; then
+        echo -e "${VERDE}[OK] PHP-FPM reiniciado y configurado correctamente.${NC}"
+        else
+        echo -e "${ROJO}[ERROR] PHP-FPM no pudo iniciarse correctamente.${NC}"
+        echo -e "${AMARILLO}[INFO] Revise el estado con: systemctl status php8.5-fpm${NC}"
+        exit 1
+    fi
     echo -e "${VERDE}[OK] Directivas OPcache y límites de memoria asignados en php.ini.${NC}\n"
 else
     echo -e "${ROJO}[ERROR] No se pudo localizar el archivo php.ini en la ruta esperada.${NC}"
@@ -306,6 +320,15 @@ fi
 echo -e "${CYAN}[8/11] Vinculando Redis Server para la gestión de bloqueos de archivos y caché...${NC}"
 systemctl start redis-server
 systemctl enable redis-server
+
+# Verificar que Redis esté activo
+if systemctl is-active --quiet redis-server; then
+    echo -e "${VERDE}[OK] Redis Server iniciado correctamente.${NC}"
+else
+    echo -e "${ROJO}[ERROR] Redis Server no pudo iniciarse correctamente.${NC}"
+    echo -e "${AMARILLO}[INFO] Revise el estado con: systemctl status redis-server${NC}"
+    exit 1
+fi
 
 sudo -u www-data php occ config:system:set memcache.local --value="\OC\Memcache\Redis"
 sudo -u www-data php occ config:system:set memcache.distributed --value="\OC\Memcache\Redis"
@@ -374,7 +397,24 @@ EOF
 # Activar el sitio y reiniciar Apache temporalmente
 a2ensite nextcloud.conf > /dev/null
 a2dissite 000-default.conf > /dev/null
-systemctl restart apache2
+
+# Comprobar sintaxis de Apache antes de reiniciar
+if apachectl configtest; then
+    systemctl restart apache2
+else
+    echo -e "${ROJO}[ERROR] La configuración de Apache contiene errores de sintaxis.${NC}"
+    exit 1
+fi
+
+# Validar que Apache esté funcionando
+if systemctl is-active --quiet apache2; then
+    echo -e "${VERDE}[OK] Apache 2.4 iniciado y configurado correctamente.${NC}"
+else
+    echo -e "${ROJO}[ERROR] Apache no pudo iniciar correctamente.${NC}"
+    echo -e "${AMARILLO}[INFO] Revise la configuración con: apachectl configtest${NC}"
+    echo -e "${AMARILLO}[INFO] Revise el servicio con: systemctl status apache2${NC}"
+    exit 1
+fi
 
 echo -e "${VERDE}[OK] Base del servidor web configurada.${NC}\n"
 
