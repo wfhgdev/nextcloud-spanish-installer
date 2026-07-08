@@ -35,7 +35,7 @@ El script soluciona de manera proactiva todos los dolores de cabeza comunes del 
 
 1. Un servidor con **Ubuntu Server 26.04 LTS** limpio (instalación base).
 2. Privilegios de acceso como **root** o permisos de `sudo`.
-3. Un **nombre de dominio** (ej: `nube.midominio.com`) con el registro DNS tipo **A** apuntando hacia la IP pública de tu servidor.
+3. Un **nombre de dominio** (ej: `nube.midominio.com`) con el registro DNS tipo **A** apuntando hacia la IP pública de tu servidor. DuckDNS recomendado!
 4. Puertos **80** y **443** abiertos en tu cortafuegos/enrutador apuntando al servidor.
 
 ## 💻 Cómo Ejecutar el Script
